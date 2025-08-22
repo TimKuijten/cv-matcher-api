@@ -146,15 +146,16 @@ def match_resumes(req: MatchRequest):
     names = list(resumes.keys())
     docs  = list(resumes.values())
 
-    # --- Expand synonyms (CONTAINS-based) for JD and each extra field ---
-    # This broadens the query so semantically equivalent phrases match stronger.
+    # --- STRICT synonym expansion (exact phrase only) ---
+    # With your strict synonyms.py, expansion happens only if the entire phrase matches a key.
+    from synonyms import expand_with_synonyms
     jd_expanded = expand_with_synonyms(jd) if jd else jd
 
     query_parts = [("JD", jd_expanded, 1.0)]
     for f in req.extras[:5]:
         t = (f.text or "").strip()
         if t:
-            t_expanded = expand_with_synonyms(t)
+            t_expanded = expand_with_synonyms(t)  # exact-phrase expansion only
             query_parts.append((f.name or "Extra Field", t_expanded, float(f.weight or 0.0)))
 
     # Compute similarities (per-part and combined)
