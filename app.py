@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # --- import the contains-based expander from your synonyms.py ---
 from synonyms import expand_with_synonyms
 
-# -------------------------
+# --------------------------
 # CONFIG
 # -------------------------
 API_KEY = os.getenv("CV_API_KEY", "change-me")  # set in env
