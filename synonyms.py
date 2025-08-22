@@ -117,7 +117,7 @@ SYNONYM_GROUPS = [
     ["esg", "environmental social governance", "sustainability reporting"],
     ["carbon credits", "carbon trading", "emission allowances"],
     ["feed-in tariff", "fit"],
-    ["renewable energy directive", "red ii", "eu renewable directive"]
+    ["renewable energy directive", "red ii", "eu renewable directive"],
 
     #   Reporting & Analysis  
     ["reporting & analysis", "financial analysis", "business analysis", "management reports"],
