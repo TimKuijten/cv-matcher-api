@@ -4,17 +4,25 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
+# --- import the contains-based expander from your synonyms.py ---
+from synonyms import expand_with_synonyms
+
 # -------------------------
 # CONFIG
 # -------------------------
 API_KEY = os.getenv("CV_API_KEY", "change-me")  # set in env
+
 # Map short ids to real server-side folders containing .txt CVs
 ALLOWED_FOLDERS: Dict[str, str] = {
     # e.g. on Render: /srv/cv-lib mounted persistent disk
     "translated": "/srv/cv-lib/translated",
     "english": "/srv/cv-lib/english",
 }
+
 WP_ORIGIN = os.getenv("WP_ORIGIN", "https://your-wordpress-domain.com")
+
+# Allow forcing TF-IDF via env to keep memory low
+FORCE_TFIDF = os.getenv("CV_FORCE_TFIDF", "false").lower() in ("1", "true", "yes")
 
 app = FastAPI(title="CV Matcher API")
 
@@ -22,22 +30,29 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[WP_ORIGIN],
     allow_credentials=True,
-    allow_methods=["POST","GET","OPTIONS"],
+    allow_methods=["POST", "GET", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Try embeddings; fall back to TF‑IDF
-USE_EMBEDDINGS = True
+# -------------------------
+# Vectorization backend: try embeddings; fall back to TF‑IDF
+# Also allow forcing TF-IDF via env.
+# -------------------------
+USE_EMBEDDINGS = not FORCE_TFIDF
 MODEL = None
 try:
-    from sentence_transformers import SentenceTransformer
-    from sklearn.metrics.pairwise import cosine_similarity as _cosine_similarity
-    MODEL = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+    if USE_EMBEDDINGS:
+        from sentence_transformers import SentenceTransformer
+        from sklearn.metrics.pairwise import cosine_similarity as _cosine_similarity
+        # Smaller model is lighter on memory; change if you prefer multilingual
+        MODEL = SentenceTransformer(os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2"))
+    else:
+        raise ImportError("Forced TF-IDF")
 except Exception:
     USE_EMBEDDINGS = False
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity as _cosine_similarity
-    VEC = TfidfVectorizer(analyzer="char_wb", ngram_range=(3,5), lowercase=True, min_df=1)
+    VEC = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), lowercase=True, min_df=1)
 
 # -------------------------
 # Auth
@@ -97,7 +112,18 @@ class MatchResponse(BaseModel):
     results: List[MatchResponseItem]
 
 # -------------------------
-# Endpoints
+# Utility endpoints
+# -------------------------
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "cv-matcher-api", "docs": "/docs"}
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
+
+# -------------------------
+# Main endpoints
 # -------------------------
 @app.get("/folders")
 def list_folders():
@@ -120,31 +146,45 @@ def match_resumes(req: MatchRequest):
     names = list(resumes.keys())
     docs  = list(resumes.values())
 
-    # Assemble query parts: JD + non-empty extras
-    query_parts = [("JD", jd, 1.0)]
+    # --- Expand synonyms (CONTAINS-based) for JD and each extra field ---
+    # This broadens the query so semantically equivalent phrases match stronger.
+    # --- STRICT synonym expansion (exact phrase only) ---
+    # With your strict synonyms.py, expansion happens only if the entire phrase matches a key.
+    from synonyms import expand_with_synonyms
+    jd_expanded = expand_with_synonyms(jd) if jd else jd
+
+    query_parts = [("JD", jd_expanded, 1.0)]
     for f in req.extras[:5]:
         t = (f.text or "").strip()
         if t:
-            query_parts.append((f.name or "Extra Field", t, float(f.weight or 0.0)))
+            t_expanded = expand_with_synonyms(t)
+            t_expanded = expand_with_synonyms(t)  # exact-phrase expansion only
+            query_parts.append((f.name or "Extra Field", t_expanded, float(f.weight or 0.0)))
 
     # Compute similarities (per-part and combined)
     try:
         if USE_EMBEDDINGS and MODEL is not None:
+            # Encode CVs once (for small/medium corpora). If memory is tight, use batching.
             cv_vecs = MODEL.encode(docs, batch_size=16, show_progress_bar=False, normalize_embeddings=True)
+
+            # Encode each query part
             part_vecs = MODEL.encode([p[1] for p in query_parts], normalize_embeddings=True)
             part_sims = _cosine_similarity(part_vecs, cv_vecs)  # (k, n)
 
-            weights = np.array([p[2] for p in query_parts], dtype=np.float32).reshape(-1,1)
+            # Weighted combined vector
+            weights = np.array([p[2] for p in query_parts], dtype=np.float32).reshape(-1, 1)
             combined_vec = (part_vecs * weights).sum(axis=0)
-            norm = np.linalg.norm(combined_vec)
-            combined_vec = combined_vec / (norm if norm else 1.0)
+            norm = np.linalg.norm(combined_vec) or 1.0
+            combined_vec = combined_vec / norm
+
             sims = _cosine_similarity([combined_vec], cv_vecs).flatten()
             method = "embeddings"
         else:
             X_docs = VEC.fit_transform(docs)
             X_q_parts = VEC.transform([p[1] for p in query_parts])
             part_sims = _cosine_similarity(X_q_parts, X_docs)
-            weights = np.array([p[2] for p in query_parts], dtype=np.float32).reshape(-1,1)
+
+            weights = np.array([p[2] for p in query_parts], dtype=np.float32).reshape(-1, 1)
             weighted = (X_q_parts.multiply(weights)).sum(axis=0)
             sims = _cosine_similarity(weighted, X_docs).flatten()
             method = "tfidf"
@@ -159,15 +199,15 @@ def match_resumes(req: MatchRequest):
         idx = int(order[r])
         parts = []
         for j, (nm, _, w) in enumerate(query_parts):
-            parts.append(PartScore(name=nm, weight=float(w), similarity=float(round(part_sims[j, idx], 6))))
+            parts.append(PartScore(name=nm, weight=float(w), similarity=float(round(float(part_sims[j, idx]), 6))))
         preview = None
         if (req.include_preview_chars or 0) > 0:
             preview = docs[idx][: int(req.include_preview_chars)]
         results.append(
             MatchResponseItem(
-                rank=r+1,
+                rank=r + 1,
                 filename=names[idx],
-                similarity=float(round(sims[idx], 6)),
+                similarity=float(round(float(sims[idx]), 6)),
                 preview=preview,
                 parts=parts
             )
