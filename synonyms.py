@@ -7,7 +7,7 @@ def _normalize(s: str) -> str:
     s = s.lower()
     s = re.sub(r"\s+", " ", s).strip()
     return s
-
+    
 # Groups of equivalent terms (bidirectional synonyms)
 SYNONYM_GROUPS = [
     # === Languages ===
@@ -184,26 +184,26 @@ SYNONYM_GROUPS = [
 SYNONYMS = {}
 for group in SYNONYM_GROUPS:
     for term in group:
-        norm = _normalize(term)
-        SYNONYMS[norm] = [t for t in group if _normalize(t) != norm]
+        key = _normalize(term)
+        SYNONYMS[key] = [t for t in group if _normalize(t) != key]
 
 def expand_with_synonyms(text: str) -> str:
-    base = text or ""
-    base_norm = _normalize(base)
+    """
+    STRICT (exact phrase) expansion:
+    - Only expand when the WHOLE input phrase exactly matches a key (after normalization).
+    - No substring/contains logic. No partial matches.
+    """
+    base = (text or "").strip()
+    key = _normalize(base)
+    syns = SYNONYMS.get(key, [])
+    if not syns:
+        return base  # no expansion if not an exact match
+    # de-dup while preserving order, and avoid re-adding the original phrase
+    seen = {key}
     add = []
-    # expand if any key phrase is a substring of the query
-    for key_norm, syns in SYNONYMS.items():
-        if key_norm in base_norm:
-            add.extend(syns)
-    if not add:
-        return base
-    # de-dup while preserving order
-    seen = set()
-    add_uniq = []
-    for s in add:
+    for s in syns:
         n = _normalize(s)
         if n not in seen:
             seen.add(n)
-            add_uniq.append(s)
-    return base + " " + " ".join(add_uniq)
-
+            add.append(s)
+    return base + (" " + " ".join(add) if add else "")
