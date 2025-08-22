@@ -91,6 +91,7 @@ class MatchRequest(BaseModel):
     folder_id: str
     top_n: Optional[int] = 5
     include_preview_chars: Optional[int] = 0
+    jd_weight: float = 1.0   # <--- NEW: default 1.0
     extras: List[ExtraField] = []  # up to 5 expected in UI
 
 class PartScore(BaseModel):
@@ -152,7 +153,7 @@ def match_resumes(req: MatchRequest):
     # With your strict synonyms.py, expansion happens only if the entire phrase matches a key.
     from synonyms import expand_with_synonyms
     jd_expanded = expand_with_synonyms(jd) if jd else jd
-
+    jd_weight = float(req.jd_weight or 1.0)
     query_parts = [("JD", jd_expanded, 1.0)]
     for f in req.extras[:5]:
         t = (f.text or "").strip()
