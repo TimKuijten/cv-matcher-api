@@ -39,21 +39,22 @@ app.add_middleware(
 # Also allow forcing TF-IDF via env.
 # -------------------------
 USE_EMBEDDINGS = not FORCE_TFIDF
-MODEL = SentenceTransformer(os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2"))
+MODEL = None
 try:
     if USE_EMBEDDINGS:
         from sentence_transformers import SentenceTransformer
         from sklearn.metrics.pairwise import cosine_similarity as _cosine_similarity
-        # Smaller model is lighter on memory; change if you prefer multilingual
-        MODEL = SentenceTransformer(os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2"))
+        model_name = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2")
+        MODEL = SentenceTransformer(model_name)
+        print(f"[CV-Matcher] Loaded embeddings model: {model_name}")
     else:
         raise ImportError("Forced TF-IDF")
-except Exception:
+except Exception as e:
+    print(f"[CV-Matcher] Embeddings unavailable ({e}). Falling back to TF-IDF.")
     USE_EMBEDDINGS = False
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity as _cosine_similarity
     VEC = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), lowercase=True, min_df=1)
-
 # -------------------------
 # Auth
 # -------------------------
