@@ -39,7 +39,7 @@ app.add_middleware(
 # Also allow forcing TF-IDF via env.
 # -------------------------
 USE_EMBEDDINGS = not FORCE_TFIDF
-MODEL = None
+MODEL = SentenceTransformer(os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2"))
 try:
     if USE_EMBEDDINGS:
         from sentence_transformers import SentenceTransformer
