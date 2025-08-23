@@ -1,7 +1,7 @@
-fastapi
-uvicorn[standard]
-numpy
-scikit-learn
-sentence-transformers
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+numpy==1.26.4
+scikit-learn==1.4.2
+sentence-transformers==2.7.0
+torch==2.2.2
 pydantic
-torch 
