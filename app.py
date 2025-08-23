@@ -2,6 +2,7 @@ import os, re, numpy as np, unicodedata
 from typing import List, Optional, Dict
 from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
 from fastapi.middleware.cors import CORSMiddleware
 
 # --- strict, exact-phrase synonym expansion ---
