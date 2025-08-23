@@ -220,6 +220,14 @@ def match_resumes(req: MatchRequest):
         results_count=len(results),
         results=results
     )
+    
+@app.get("/mode")
+def mode():
+    return {
+        "use_embeddings": bool(USE_EMBEDDINGS and MODEL is not None),
+        "model": os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2") if MODEL else None,
+        "method": "embeddings" if (USE_EMBEDDINGS and MODEL) else "tfidf"
+    }
 
 # Render/Heroku-style start
 if __name__ == "__main__":
